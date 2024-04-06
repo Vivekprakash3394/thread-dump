@@ -1,0 +1,89 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: thread-dump-cronjob-script-config
+  namespace: fes
+data:
+  thread_dump_cronjob.sh: |
+    cd /var/run/secrets/kubernetes.io/serviceaccount
+    kubectl config set-cluster cfc --server=https://kubernetes.default --certificate-authority=ca.crt
+    kubectl config set-context cfc --cluster=cfc
+    export satoken=$(cat token)
+    kubectl config set-credentials user --token=$satoken
+    kubectl config set-context cfc --user=user
+    kubectl config use-context cfc
+    cd -
+    #!/bin/bash
+    namespace_name="fes"
+    object_kind_name="deploy"
+    object_name="fe-stack-mobi-service"
+    replicas=$(kubectl get $object_kind_name $object_name -n $namespace_name --no-headers -o custom-columns=":spec.replicas")
+    execution_on_pod(){
+    cat <<EOF > thread-dump-script.sh
+
+    apt-get update -y
+    apt-get install expect -y
+    
+    
+    jstack_path=\$(which jstack)
+    java_pid=\$(pidof java)
+    current_date=\$(date +%d_%m_%Y)
+    timestamp=\$(date +%d_%m_%Y_%H_%M)
+    object_name=$object_name
+    namespace_name=$namespace_name
+    pod=$pod
+    sftp_remotepath="/staging/org-www/"
+
+    echo "Taking thread dump on pod $pod"
+    \$jstack_path -l \$java_pid > /tmp/\$pod-\$timestamp-threaddump.txt
+
+    expect -c "
+    spawn sftp -o StrictHostKeyChecking=no threaddumpuser@35.162.186.120
+    expect \"password:\"
+    send \"\${sftp}\r\"
+    expect \"sftp>\"
+    send \"put /tmp/\$pod-\$timestamp-threaddump.txt \$sftp_remotepath\r\"
+    expect \"sftp>\"
+    send \"bye\r\"
+    "
+
+    echo "Completed with pod - $pod"
+    yes '' | sed 2q
+    echo "#############################################################################################################################################"
+    echo "#############################################################################################################################################"
+    echo "#############################################################################################################################################"
+    yes '' | sed 2q
+    exit 0
+    EOF
+    }
+    if [ $replicas -lt 1 ]; then
+        echo "#############################################################################################################################################"
+        echo "#################### Total number of replicase running for this $object_name is/are: $replicas"
+        echo "#################### ReplicaSet Count is 1 or less than 1 for $object_name $object_kind_name, So Aborting the script ..."
+        echo "#############################################################################################################################################"
+    else
+        echo "#############################################################################################################################################"
+        echo "#################### Total number of replicase running for this $object_name are: $replicas"
+        echo "#############################################################################################################################################"
+
+        
+        pods=$(kubectl get pod -n $namespace_name  --no-headers -o custom-columns=":metadata.name" | grep $object_name)
+        for pod in ${pods}; do
+            n=$(echo $pod | rev | cut -d"-" -f1  | rev)
+            if [ $object_kind_name == "deploy" ] && [ ${#n} -gt 1 ]; then
+                common_pod_name=$(echo $pod | rev | cut -d"-" -f3-  | rev)
+                if [ $common_pod_name == $object_name ]; then
+                    echo "Working on $pod"
+                    execution_on_pod $pod
+                    echo "Copying script into pod - $pod"
+                    kubectl cp thread-dump-script.sh $namespace_name/$pod:/ -c mobi-service -n $namespace_name
+                    echo "Changing thread dump script permission to 777"
+                    kubectl exec -it $pod -c mobi-service -n $namespace_name -- chmod +x /thread-dump-script.sh
+                    echo "Executing thread-dump script on pod $pod"
+                    kubectl exec -it $pod -c mobi-service -n $namespace_name -- /bin/bash thread-dump-script.sh
+                fi
+            fi
+        done
+    fi
+    exit 0
+    ###### END ######
