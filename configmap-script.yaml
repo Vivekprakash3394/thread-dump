@@ -4,7 +4,7 @@ metadata:
   name: thread-dump-cronjob-script-config
   namespace: fes
 data:
-  thread_dump_cronjob.sh: |
+  thread_dump_staging_cronjob.sh: |
     cd /var/run/secrets/kubernetes.io/serviceaccount
     kubectl config set-cluster cfc --server=https://kubernetes.default --certificate-authority=ca.crt
     kubectl config set-context cfc --cluster=cfc
@@ -32,7 +32,7 @@ data:
     object_name=$object_name
     namespace_name=$namespace_name
     pod=$pod
-    sftp_remotepath="/staging/org-www/"
+    sftp_remotepath="/staging/"
 
     echo "Taking thread dump on pod $pod"
     \$jstack_path -l \$java_pid > /tmp/\$pod-\$timestamp-threaddump.txt
