@@ -4,7 +4,7 @@ metadata:
   name: thread-dump-cronjob
   namespace: fes
 spec:
-  schedule: "*/3 * * * *" #every 5th minutes
+  schedule: "*/2 * * * *" #every 5th minutes
   successfulJobsHistoryLimit: 3 
   jobTemplate:
     spec:
@@ -20,8 +20,14 @@ spec:
             - name: my-cronjob
               image: fareye.azurecr.io/alertbots:dev_bca3f3ba0
               imagePullPolicy: IfNotPresent
+              envFrom:
+              - secretRef:
+                  name: sftp-access-secret
+              volumeMounts:
+                - name: thread-dump-cronjob-script
+                  mountPath: /etc/config
               command: [ "/bin/bash" ]
-              args: [ "/etc/config/thread_dump_cronjob.sh" ]
+              args: [ "/etc/config/thread_dump_staging_cronjob.sh" ]
           volumes:
             - name: thread-dump-cronjob-script
               configMap:
